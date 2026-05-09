@@ -1,0 +1,49 @@
+name: Trigger GA4 Daily Report
+
+on:
+  # 每天北京 9:07(UTC 01:07)— 错开整点高峰
+  # 公开 repo 的 schedule 比私有 repo 稳定得多
+  schedule:
+    - cron: "7 1 * * *"
+  workflow_dispatch:
+    inputs:
+      report_date:
+        description: "指定日期 YYYY-MM-DD(留空默认昨天)"
+        required: false
+        default: ""
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger carycheung/GA4 daily-report.yml
+        env:
+          TRIGGER_PAT: ${{ secrets.TRIGGER_PAT }}
+          REPORT_DATE: ${{ github.event.inputs.report_date }}
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg ref "main" \
+            --arg date "$REPORT_DATE" \
+            '{ref: $ref, inputs: {report_date: $date}}')
+
+          echo "Triggering with payload: $PAYLOAD"
+
+          HTTP_CODE=$(curl -s -o /tmp/resp.txt -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $TRIGGER_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/carycheung/GA4/actions/workflows/daily-report.yml/dispatches" \
+            -d "$PAYLOAD")
+
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/resp.txt
+          echo ""
+
+          if [ "$HTTP_CODE" != "204" ]; then
+            echo "❌ Trigger failed"
+            exit 1
+          fi
+          echo "✅ Trigger succeeded"
